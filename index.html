@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebXR Проверка</title>
+    <style>
+        body { font-family: sans-serif; background: #f4f4f9; color: #333; padding: 20px; max-width: 600px; margin: 0 auto; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .status { font-size: 1.4rem; font-weight: bold; padding: 10px; border-radius: 4px; text-align: center; margin-bottom: 20px; }
+        .available { background: #d4edda; color: #155724; }
+        .partial { background: #fff3cd; color: #856404; }
+        .unavailable { background: #f8d7da; color: #721c24; }
+        ul { list-style: none; padding: 0; }
+        li { padding: 8px 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; font-size: 1rem; }
+        .yes { color: green; font-weight: bold; }
+        .no { color: red; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>Проверка совместимости с WebXR AR</h2>
+    <div id="status-box" class="status">Оцениваем устройство...</div>
+    <h3>Детали отчета:</h3>
+    <ul id="report-list"></ul>
+</div>
+
+<script>
+async function checkCompatibility() {
+    const report = {};
+    
+    report.ua = navigator.userAgent;
+    report.os = "Неизвестная ОС";
+    if (/android/i.test(report.ua)) report.os = "Android";
+    else if (/iPad|iPhone|iPod/.test(report.ua) && !window.MSStream) report.os = "iOS";
+    else if (/Windows/.test(report.ua)) report.os = "Windows";
+
+    const canvas = document.createElement('canvas');
+    const gl2 = canvas.getContext('webgl2');
+    const gl1 = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    
+    report.webgl2 = !!gl2;
+    report.webgl1 = !!gl1;
+    
+    let gpu = "Неизвестная видеокарта";
+    const glContext = gl2 || gl1;
+    if (glContext) {
+        const debugInfo = glContext.getExtension('WEBGL_debug_renderer_info');
+        if (debugInfo) {
+            gpu = glContext.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+        }
+    }
+    report.gpu = gpu;
+
+    report.webxrAr = false;
+    if (navigator.xr) {
+        try {
+            report.webxrAr = await navigator.xr.isSessionSupported('immersive-ar');
+        } catch (e) { report.webxrAr = false; }
+    }
+
+    report.orientation = !!window.DeviceOrientationEvent;
+    report.getUserMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    report.https = location.protocol === 'https:';
+    report.touch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    report.wasm = typeof WebAssembly === "object";
+    
+    report.xrInline = false;
+    if (navigator.xr) {
+        try { report.xrInline = await navigator.xr.isSessionSupported('inline'); } catch(e){}
+    }
+
+    let statusClass = "unavailable";
+    let recommendation = "AR недоступно";
+    
+    if (report.webxrAr && report.webgl2 && report.getUserMedia) {
+        statusClass = "available";
+        recommendation = "AR полностью доступно!";
+    } else if ((report.webgl1 || report.webgl2) && report.getUserMedia && (report.orientation || report.xrInline)) {
+        statusClass = "partial";
+        recommendation = "AR частично доступно (ограниченный режим)";
+    }
+
+    document.getElementById('status-box').className = `status ${statusClass}`;
+    document.getElementById('status-box').innerText = recommendation;
+
+    const list = document.getElementById('report-list');
+    list.innerHTML = `
+        <li><strong>Операционная система:</strong> <span>${report.os}</span></li>
+        <li><strong>Видеокарта (GPU):</strong> <span>${report.gpu}</span></li>
+        <li><strong>Поддержка WebGL 2:</strong> <span>${report.webgl2 ? "Да" : "Нет"}</span></li>
+        <li><strong>Поддержка WebGL 1:</strong> <span>${report.webgl1 ? "Да" : "Нет"}</span></li>
+        <li><strong>WebXR Immersive AR:</strong> <span>${report.webxrAr ? "Да" : "Нет"}</span></li>
+        <li><strong>WebXR Inline:</strong> <span>${report.xrInline ? "Да" : "Нет"}</span>
+        <li><strong>Доступ к камере:</strong> <span>${report.getUserMedia ? "Да" : "Нет"}</span></li>
+        <li><strong>Датчик ориентации:</strong> <span>${report.orientation ? "Да" : "Нет"}</span></li>
+        <li><strong>Безопасное соединение (HTTPS):</strong> <span>${report.https ? "Да" : "Нет"}</span></li>
+        <li><strong>Сенсорный экран:</strong> <span>${report.touch ? "Да" : "Нет"}</span></li>
+        <li><strong>Поддержка WebAssembly:</strong> <span>${report.wasm ? "Да" : "Нет"}</span></li>
+    `;
+
+    sendToGoogleForm(report, recommendation);
+}
+
+function sendToGoogleForm(data, rec) {
+    const formUrl = "https://google.com";
+    const formData = new FormData();
+    
+    formData.append('entry.2070039847', data.gpu);
+    formData.append('entry.304733804', data.ua);
+    formData.append('entry.163246007', data.os);
+    formData.append('entry.1120193159', data.webgl2 ? "Да" : "Нет");
+    formData.append('entry.1157890915', data.webxrAr ? "Да" : "Нет");
+    formData.append('entry.167026815', data.orientation ? "Да" : "Нет");
+    formData.append('entry.618821502', data.getUserMedia ? "Да" : "Нет");
+    formData.append('entry.1838479054', rec);
+
+    fetch(formUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        body: formData
+    });
+}
+
+window.addEventListener('DOMContentLoaded', checkCompatibility);
+</script>
+</body>
+</html>
